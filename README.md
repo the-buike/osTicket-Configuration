@@ -1,196 +1,191 @@
+# BUIKE-HELPDESK (osticket.local)
+
 <p align="center">
   <img src="images/osticket-logo-banner.png" alt="osTicket logo" width="100%" />
 </p>
 
-# BUIKE-HELPDESK: Initial Configuration Walkthrough
+A self-hosted support ticketing system built on Azure. Provisioning, web server configuration, PHP and MySQL setup, and application deployment, all done by hand and documented like a production rollout.
 
-**Phase 2 of the Ashgrove Clinic osTicket engagement, Bridgeway Technology**
+<p align="center">
+  <img src="images/03-vm-networking.png" alt="Azure VM provisioning" width="58%" />
+  <img src="images/25-congratulations.png" alt="osTicket install complete" width="33%" />
+</p>
 
-This phase picks up right after the base install: osTicket and all its dependencies are already running on the VM. Here we configure the actual help desk, roles, SLAs, departments, teams, agents, and help topics, all scoped around a fictional MSP engagement where Bridgeway Technology has been hired to stand up ticketing for Ashgrove Clinic.
+<p align="center"><em>Left: creating the osticket-vm virtual machine, setting the virtual network, subnet, and public IP on the Networking tab, inside the OS-Ticktet-RG resource group. Right: the osTicket Installer's Congratulations screen, confirming osTicket v1.15.8 installed successfully, with links to the live helpdesk and the staff control panel.</em></p>
 
 ---
 
-## Why This Phase Exists
+## Why This Project Exists
 
-A fresh osTicket install is just a shell. Nothing in it reflects how a real clinic IT department actually runs: who has access to what, how fast a critical outage needs a response versus a routine password reset, and which category a ticket falls into before it ever reaches an agent.
+I wanted hands-on practice standing up a real application on real infrastructure instead of clicking through a cloud trial. This build takes a Windows Server VM in Azure from a blank resource group all the way to a working help desk: IIS installed and configured by hand, PHP wired in through PHP Manager, MySQL set up as the backend, and osTicket deployed and installed through its own setup wizard.
 
-This phase builds that structure out. The goal was to configure osTicket the way an MSP tech would on day one of a real engagement: set up admin access first, then SLAs, then departments, then the people, then the categories tickets get filed under.
+It also follows real operational habits. Every resource is named and tracked, every dependency is documented, and the one real problem I hit along the way, an HTTP 500 error from a permissions issue, is written up with what caused it and how it got fixed.
 
 ---
 
 ## Environment
 
-| Component | Detail |
-|---|---|
-| Platform | Microsoft Azure, Windows Server VM |
-| Application | osTicket v1.15.8 |
-| Admin persona | chibuike (Jordan Reyes, jreyes) |
-| Fictional MSP | Bridgeway Technology |
-| Fictional client | Ashgrove Clinic |
-| Project name | BUIKE-HELPDESK |
+| Asset ID | Resource | Role | Details |
+|---|---|---|---|
+| RG-OST01 | OS-Ticktet-RG | Resource group | East US 2 |
+| VM-OST01 | osticket-vm | Application host | Windows Server, running IIS, PHP, and MySQL |
+| NET-OST01 | vnet-eastus2-1 | Virtual network | 172.16.0.0/24 |
+| IP-OST01 | osticket-vm-ip | Public IP | Attached to VM-OST01 |
+| NSG-OST01 | osticket-vm-nsg | Network security group | Basic rule set |
+
+Everything lives in a single resource group so the whole build can be torn down or redeployed cleanly. Remote Desktop is the only way in, there is no separate jump box or bastion for a build this size.
 
 ---
 
-## What Got Configured
+## Software Stack
 
-### 1. Roles
-
-**Path:** Admin Panel > Agents > Roles
-
-![Agents menu with Roles highlighted](images/01-agents-menu-dropdown.png)
-
-Before adding anything, the built-in roles were reviewed for a baseline: All Access, Expanded Access, Limited Access, Supreme Admin, and View only.
-
-![Roles list before the new role was added](images/02-roles-list-before.png)
-
-A custom role, IT Director, was created for the person overseeing Clinical IT Support.
-
-![Add New Role, Definition tab, name set to IT Director](images/03-add-role-definition-tab.png)
-
-![Add New Role, Permissions tab, all ticket permissions checked](images/04-add-role-permissions-tab.png)
-
-![Roles list confirming IT Director was added](images/05-roles-list-it-director-added.png)
-
-Permissions in osTicket are granted per department, not globally, so the same agent can hold different roles in different departments if they need extended access to more than one.
-
-**Why this came first:** access control has to exist before there's anything to control access to. If departments, agents, or SLAs get built out first, whoever creates them is working under default permissions the whole time, which means going back later to retrofit a proper role onto accounts that already have tickets and history attached. Building the role first means every account created afterward inherits the right level of access from the moment it exists, instead of getting patched after the fact. It also mirrors how a real MSP engagement works: the first thing a technician sets up on a new client's system is who is allowed to touch what, not the workflow itself.
-
-The decision to check every permission for IT Director rather than hand-picking a subset was also deliberate. A View Only or Expanded Access style role would have meant guessing in advance which specific actions the department lead would need, and getting that wrong means a support ticket to fix a role definition instead of an agent fixing a support ticket. Full access at the top of the org chart is the standard pattern in real IT departments too, the constraint usually isn't what the director can do, it's how few people get that role.
-
-### 2. Departments
-
-**Path:** Admin Panel > Agents > Departments
-
-Departments represent the IT support org, not the hospital units requesting help. They control who owns and can see a given ticket.
-
-![Departments list before any new departments were added](images/06-departments-list-before.png)
-
-A System Admins department was created and configured underneath Support, with a manager assigned and the schedule set to 24/7.
-
-![Update Department screen for System Admins](images/07-update-department-system-admins.png)
-
-A dedicated department email address was also set up for Clinical IT Support so tickets routed there would send and receive under a distinct identity.
-
-![Add New Email Address form for Clinical IT Support](images/08-add-email-clinical-it-support.png)
-
-![Email Addresses list confirming Clinical IT Support was added](images/09-email-list-clinical-it-support-added.png)
-
-**Why System Admins instead of naming a department after a clinical unit:** the walkthrough this phase is based on calls this out directly, departments in osTicket represent the IT org, not the org being supported. A hospital or clinic has departments like Radiology, Billing, and Front Desk, but none of those are the ones triaging a ticket. Modeling osTicket's departments after the clinic's org chart would mean every ticket needs a human to figure out which clinical unit it's "about" before it can even be filed, when what actually matters for routing is which IT team owns the fix. Keeping System Admins scoped to the support org keeps that judgment call out of the loop entirely, the help topic handles the categorization instead (see Help Topics below), and the department just owns the queue.
-
-**Why a dedicated email address for Clinical IT Support:** the default Support address is a generic catch-all. Giving Clinical IT Support its own address at High priority means any mail that comes in through that channel is already flagged as urgent before an agent even opens it, and outbound replies from that department carry a distinct, recognizable sender identity instead of blending in with general support traffic. In a real clinic, that separation matters more than it looks like it should, an EHR-down email and a "how do I reset my portal password" email should never be sitting in the same undifferentiated inbox waiting to be read in order.
-
-### 3. Teams
-
-**Path:** Admin Panel > Agents > Teams
-
-Teams group agents across departments, useful when a group needs shared visibility into a category of issue regardless of their primary department. A Clinical Systems Support team was created to represent Clinical IT Support staff plus help desk agents who jointly handle tickets tied to patient-facing systems.
-
-![Update Team screen for Clinical Systems Support](images/10-update-team-clinical-systems-support.png)
-
-**Why teams exist separately from departments:** departments and teams solve two different problems, and collapsing them into one thing is a common mistake when someone is setting up a help desk for the first time. A department answers "who owns this ticket." A team answers "who else needs eyes on it." Clinical Systems Support exists because a ticket about the AD-authenticated patient portal, for example, might get filed and owned by Clinical IT Support, but a System Admins agent handling directory services also needs visibility into it without having ownership transferred to them. Without a team, that agent either has to be pulled into the department outright, which grants them more than visibility, or they simply don't see the ticket until someone thinks to loop them in manually. The team layer lets access follow the category of problem instead of the org chart.
-
-### 4. Agents
-
-**Path:** Admin Panel > Agents > Add New
-
-Two agent accounts were created: Devon Ricci as IT Director over Clinical IT Support, and Marcus Bell as a View Only agent under the default Support department.
-
-![Add New Agent, Access tab, department dropdown open](images/11-add-agent-access-tab-department.png)
-
-![Add New Agent, Teams tab, Clinical Systems Support selected](images/12-add-agent-teams-tab.png)
-
-After each agent was created, their password was set separately through the agent's profile.
-
-![Set Agent Password modal](images/13-set-agent-password-modal.png)
-
-![Final agents list with Devon Ricci and Marcus Bell added](images/14-agents-list-final-devon-marcus.png)
-
-**Why two agents with deliberately different access levels:** a help desk with only administrator accounts doesn't actually prove anything about how permissions work, it just proves the installer succeeded. Devon Ricci was built as the IT Director over Clinical IT Support specifically to sit at the top of the access model created earlier, full ticket permissions, primary ownership of the clinical queue, and membership on the cross-department team. Marcus Bell was built as the opposite case on purpose, a View Only agent under the default Support department, to represent a junior hire, a contractor, or anyone who needs to see ticket activity without being able to act on it. Having both accounts live at once means the role and department configuration from earlier steps can actually be checked against real behavior instead of taken on faith.
-
-**Why the password gets set in a separate step:** osTicket's account creation flow and its password flow are intentionally split. Setting the password afterward, through the agent's own profile, matches how account provisioning tends to work in a real environment, an account gets created with baseline access first, then credentials get issued and handed off separately, sometimes by a different person entirely. It also leaves the option open to send a password reset email instead of setting one directly, which is closer to how a real MSP would onboard a client's staff.
-
-### 5. SLAs
-
-**Path:** Admin Panel > Manage > SLA
-
-Three SLA tiers were built around patient impact rather than generic severity labels, all running against the default 24/7 schedule created for this phase.
-
-| SLA | Grace Period | Use Case |
+| Component | Version | Purpose |
 |---|---|---|
-| Sev A | 1 hour | Critical outages affecting patient care systems |
-| Sev B | 4 hours | Significant disruption, not directly patient-facing |
-| Sev C | 8 hours | Routine requests, password resets, general support |
+| IIS | 10 | Web server |
+| PHP | 7.3.8 | Application runtime |
+| PHP Manager for IIS | 1.5.0 | Registers and manages PHP inside IIS |
+| IIS URL Rewrite Module | 2 | Clean URL routing, required by osTicket |
+| VC++ Redistributable | 2015-2022 (x86) | Runtime dependency for PHP and MySQL |
+| MySQL Server | 5.5 | Database backend, Standard Configuration |
+| HeidiSQL | 12.3 | Database management client |
+| osTicket | v1.15.8 | Help desk application |
 
-![SLA plan list showing Default, Sev A, Sev B, and Sev C](images/15-sla-list-sev-a-b-c.png)
+---
 
-![Update SLA Plan screen for Sev A](images/16-update-sla-plan-sev-a.png)
+## Installation Walkthrough
 
-**Why patient impact instead of generic severity labels:** "High, Medium, Low" tells an agent nothing about what's actually at stake, it just ranks tickets against each other without saying why. Naming the tiers Sev A, Sev B, and Sev C and defining each one by what it means for patient care forces the grace period to be justified by a real scenario instead of a gut feeling about urgency. A 1 hour grace period on Sev A isn't arbitrary, it's what "the EHR is down and clinicians can't chart" actually demands. That framing also makes the tiers easier to defend later, if someone asks why a ticket is Sev A instead of Sev B, the answer is about what broke, not about a subjective priority label.
+### 1. Provision the virtual machine
 
-**Why 24/7 for all three tiers instead of business hours:** a clinic doesn't stop needing IT support at 5 PM the way a typical office might. Even the lowest tier here, Sev C, still needs to be reachable outside business hours because a locked-out login or a broken workstation can happen on any shift, healthcare runs around the clock. The tradeoff of an always-on grace period is deliberate, it means the SLA clock never pauses to give an artificially generous buffer, which keeps the numbers honest.
+Everything starts in the Azure Portal. I created a dedicated resource group, OS-Ticktet-RG, so every piece of this build, the VM, the network, the public IP, would live in one place and be easy to clean up later if needed.
 
-### 6. Help Topics
+<p align="center"><img src="images/01-resource-group.png" width="80%"></p>
+<p align="center"><img src="images/02-resource-group-review.png" width="80%"></p>
 
-**Path:** Admin Panel > Manage > Help Topics
+Once the resource group was set up, I created the actual virtual machine. On the networking tab I let Azure generate a new virtual network and subnet, added a public IP so I could reach the box from outside, and left the network security group on the basic setting for now.
 
-Help topics are the categories hospital staff choose when submitting a ticket, and they can auto-route tickets to a department, priority, and SLA plan.
+<p align="center"><img src="images/03-vm-networking.png" width="80%"></p>
+<p align="center"><img src="images/04-vm-deployment.png" width="80%"></p>
 
-![Help Topics list before the new topics were added](images/17-help-topics-list-before.png)
+### 2. Grab the installation files
 
-A Critical System Outage topic was added first, since it needed the fastest routing of the group.
+With the VM deployed, I remoted into it and downloaded a zip bundle containing everything needed: osTicket itself, PHP, PHP Manager for IIS, the URL Rewrite Module, the Visual C++ Redistributable, HeidiSQL, and MySQL. Extracting the zip pulls all of that out into one folder so Windows can run the installers inside it.
 
-![Add New Help Topic screen for Critical System Outage](images/18-add-help-topic-critical-outage.png)
+<p align="center"><img src="images/05-extract-files.png" width="80%"></p>
+<p align="center"><img src="images/06-installation-files.png" width="80%"></p>
 
-![New ticket options for Critical System Outage](images/19-critical-outage-ticket-options.png)
+### 3. Turn on IIS and the CGI feature
 
-A Workstation / PC Issue topic was added underneath Report a Problem as a sub-topic, since it's a specific flavor of a broader complaint category.
+This part lives in Control Panel. Open it from the Windows search bar, go to Programs, then Turn Windows features on or off. This is where Internet Information Services gets enabled. Underneath World Wide Web Services there is a subfolder called Application Development Features, and inside that is CGI, which needs to be checked. This is what lets IIS hand PHP requests off to the PHP engine.
 
-![Add New Help Topic screen for Workstation / PC Issue](images/20-add-help-topic-workstation-pc.png)
+<p align="center"><img src="images/07-enable-iis-cgi.png" width="80%"></p>
 
-![New ticket options for Workstation / PC Issue](images/21-workstation-pc-ticket-options.png)
+After enabling it, I confirmed IIS was actually running by browsing to the server's own address and seeing the default Windows welcome page.
 
-An Equipment Request topic rounded out the set, routed at a lower urgency since it isn't tied to an active outage.
+<p align="center"><img src="images/08-iis-default-page.png" width="80%"></p>
 
-![Add New Help Topic screen for Equipment Request](images/22-add-help-topic-equipment-request.png)
+### 4. Install PHP Manager and the URL Rewrite Module
 
-![New ticket options for Equipment Request](images/23-equipment-request-ticket-options.png)
+PHP Manager for IIS is what lets IIS register and manage the PHP runtime, so that went in first.
 
-![Final help topics list](images/24-help-topics-list-final.png)
+<p align="center"><img src="images/09-php-manager-installed.png" width="80%"></p>
 
-**Why Critical System Outage got built first:** with three topics to add, the order wasn't arbitrary. Building the highest-urgency topic first means the routing rules for the worst-case scenario exist before anything lower-priority does, so there's never a window where a critical outage could come in and fall through to a default topic with no SLA attached. It also mirrors the sequence the SLA tiers were built in, define the worst case, then work down.
+Right after that came the IIS URL Rewrite Module 2, which osTicket and most PHP applications need for clean, working URLs.
 
-**Why Workstation / PC Issue is a sub-topic instead of standalone:** nesting it under Report a Problem keeps the top-level list from growing into a flat pile of overlapping categories. A workstation issue is a kind of problem report, not a separate class of ticket, so giving it a parent topic keeps that relationship visible in the structure itself instead of just in someone's head. It also means Report a Problem can hold other sub-topics later without needing to reorganize what's already there.
+<p align="center"><img src="images/10-url-rewrite-setup.png" width="80%"></p>
 
-**Why Equipment Request sits at Sev C instead of a dedicated tier:** not every ticket needs a bespoke SLA, and manufacturing urgency where none exists undermines the tiers that actually need to mean something. A request for a new monitor or a spare keyboard doesn't carry any patient-impact risk, so it gets folded into the same 8-hour, business-general tier as routine requests like password resets. Keeping the low-urgency tickets pooled together is what keeps Sev A meaningful, if everything were tagged as urgent, the fast SLA would stop signaling anything.
+### 5. Set up a home for PHP
 
-**Why each topic sets its own priority and SLA instead of inheriting from the department:** System Admins owns all three of these topics, but they don't all carry the same urgency. If priority and SLA were only set at the department level, Critical System Outage and Equipment Request would be forced to share a single grace period despite representing completely different levels of risk. Setting these fields per topic means the department defines who owns the queue, and the topic defines how fast that specific kind of ticket needs to move, which keeps ownership and urgency as two separate decisions instead of one.
+Before installing PHP itself, I checked how much space was left on the C: drive, then created a plain folder at the root of C: called PHP to keep the runtime separate from the website files.
+
+<p align="center"><img src="images/11-check-disk-space.png" width="80%"></p>
+<p align="center"><img src="images/12-create-php-folder.png" width="80%"></p>
+
+### 6. Install the Visual C++ Redistributable and MySQL
+
+PHP and MySQL 5.5 both depend on the Microsoft Visual C++ 2015-2022 Redistributable, so that got installed next.
+
+<p align="center"><img src="images/13-vcredist-install.png" width="80%"></p>
+
+Then came MySQL Server 5.5 itself. I ran through the setup wizard and chose Standard Configuration, since this is a single machine that did not already have MySQL on it.
+
+<p align="center"><img src="images/14-mysql-setup-wizard.png" width="80%"></p>
+<p align="center"><img src="images/15-mysql-standard-config.png" width="80%"></p>
+
+### 7. Drop the osTicket files into wwwroot
+
+With the web stack in place, the osTicket application files went into IIS's web root at `C:\inetpub\wwwroot\osticket`, sitting right next to the PHP folder created earlier.
+
+<p align="center"><img src="images/16-wwwroot-listing.png" width="80%"></p>
+<p align="center"><img src="images/17-php-folder-verify.png" width="80%"></p>
+
+### 8. Hit an HTTP 500 error on the first try
+
+The first attempt to load the site did not go smoothly. Browsing to `localhost/osticket` threw an HTTP 500.0 Internal Server Error, with the FastCGI module reporting error code `0x80070003` while trying to run `index.php`. This is a classic sign of an NTFS permissions problem, meaning the IIS worker process did not have the access it needed to the application folder yet.
+
+<p align="center"><img src="images/18-http-500-error.png" width="80%"></p>
+
+### 9. Fix the folder permissions
+
+To fix it, I opened the Advanced Security Settings on `ost-config.php`, the file inside `osticket\include` that stores the database connection details. At this point IIS_IUSRS only had Read and execute access, which was not enough.
+
+<p align="center"><img src="images/19-permissions-advanced-security.png" width="80%"></p>
+
+I added a new permission entry for the Everyone group and gave it Full control, so the installer would have the write access it needed to save the configuration during setup.
+
+<p align="center"><img src="images/20-permission-entry-everyone.png" width="80%"></p>
+<p align="center"><img src="images/21-select-user-or-group.png" width="80%"></p>
+
+### 10. Run the osTicket installer
+
+With permissions sorted, the browser based osTicket Installer finally loaded the way it was supposed to. The prerequisite check confirmed PHP 7.3.8 and the MySQLi extension were good to go, with only a handful of optional extensions like IMAP and Intl missing, which are not required for a basic setup.
+
+<p align="center"><img src="images/22-installer-prereq-check.png" width="80%"></p>
+
+From there I filled out the Basic Installation form: the helpdesk name, the admin account, and the database connection details pointing at the local MySQL instance and the osticket database.
+
+<p align="center"><img src="images/23-basic-installation-form.png" width="80%"></p>
+
+Hitting Install Now kicked off the actual installation.
+
+<p align="center"><img src="images/24-installing-progress.png" width="80%"></p>
+
+### 11. Success
+
+And that was it. The installer finished with a clean Congratulations screen, confirming osTicket was installed and reminding me to lock down write access on `ost-config.php` once everything was configured. From here the helpdesk was reachable at `localhost/osticket`, with a staff control panel at `localhost/osticket/scp`.
+
+<p align="center"><img src="images/25-congratulations.png" width="80%"></p>
+
+---
+
+## Things That Broke
+
+- **HTTP 500 on the first load.** Browsing to `localhost/osticket` threw an Internal Server Error, with the FastCGI module reporting error code `0x80070003` while trying to run `index.php`. Root cause was NTFS permissions: `ost-config.php` was not writable by the IIS worker process. Fixed by opening Advanced Security Settings on the file and granting the Everyone group Full control, which let the installer write the config during setup.
 
 ---
 
 ## Build Phases
 
-1. Reviewed built-in roles, then built a custom IT Director role with full ticket permissions
-2. Created the System Admins department and a dedicated Clinical IT Support email address
-3. Created the Clinical Systems Support team for cross-department visibility
-4. Created Devon Ricci (IT Director, Clinical IT Support) and Marcus Bell (View Only, Support), setting passwords separately after account creation
-5. Built out three SLA tiers (Sev A, Sev B, Sev C) framed around patient impact
-6. Added Critical System Outage, Workstation / PC Issue, and Equipment Request help topics, each routed to a department, priority, and SLA plan
+| Phase | Scope | Status |
+|---|---|---|
+| 1. Provisioning | Resource group, VM, and networking created in Azure | Complete |
+| 2. Web Server | IIS installed, CGI feature enabled | Complete |
+| 3. Runtime & Database | PHP, PHP Manager, URL Rewrite Module, VC++ Redistributable, MySQL | Complete |
+| 4. Application Deploy | osTicket files copied into wwwroot | Complete |
+| 5. Troubleshooting | HTTP 500 error resolved via NTFS permissions fix | Complete |
+| 6. Installer | osTicket setup wizard completed end to end | Complete |
+| 7. Hardening | Remove write access on ost-config.php, review permissions | Planned |
 
 ---
 
-## Recap
+## Repo Structure
 
-By the end of this phase:
-
-- An IT Director role exists with full ticket permissions
-- A System Admins department and a Clinical IT Support email address are configured
-- A Clinical Systems Support team exists for cross-department ticket visibility
-- Two agents are active: Devon Ricci (IT Director) and Marcus Bell (View Only)
-- Three SLA tiers are live: Sev A (1hr), Sev B (4hr), and Sev C (8hr), all on a 24/7 schedule
-- New help topics route tickets by patient impact: Critical System Outage and Workstation / PC Issue at Sev A, Equipment Request at Sev C
-
-**Next step:** creating and working mock tickets, submitting as an end user, then triaging, assigning, and resolving as an agent.
+```
+.
+├── README.md
+├── images/          Screenshots from every phase of the build
+└── docs/            Phase writeups (planned)
+```
 
 ---
 
-*Bridgeway Technology, Ashgrove Clinic engagement*
+*Built and documented by Chibuike "BK" Okerulu.*
