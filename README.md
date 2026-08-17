@@ -24,7 +24,7 @@ This phase builds that structure out. The goal was to configure osTicket the way
 |---|---|
 | Platform | Microsoft Azure, Windows Server VM |
 | Application | osTicket v1.15.8 |
-| Admin persona | chibuike (Jordan Reyes, jreyes) |
+| Admin persona | chibuike (Devon Ricci, Marcus Bell) |
 | Fictional MSP | Bridgeway Technology |
 | Fictional client | Ashgrove Clinic |
 | Project name | BUIKE-HELPDESK |
@@ -165,6 +165,20 @@ An Equipment Request topic rounded out the set, routed at a lower urgency since 
 
 **Why each topic sets its own priority and SLA instead of inheriting from the department:** System Admins owns all three of these topics, but they don't all carry the same urgency. If priority and SLA were only set at the department level, Critical System Outage and Equipment Request would be forced to share a single grace period despite representing completely different levels of risk. Setting these fields per topic means the department defines who owns the queue, and the topic defines how fast that specific kind of ticket needs to move, which keeps ownership and urgency as two separate decisions instead of one.
 
+### 7. Branding
+
+**Path:** Admin Panel > Settings > Company > Logos
+
+Once the core configuration was in place, the default osTicket branding was swapped out for a custom Ashgrove Clinic logo, replacing the generic Support Center wordmark that ships with the system out of the box.
+
+![Company Profile, Logos tab, custom Ashgrove Clinic logo set for Client](images/26-company-profile-custom-logo.png)
+
+The Logos tab under Company Profile splits the setting into two independent choices, one for the Client-facing portal and one for the Staff control panel, each pointed at either the system default logo or a custom upload. For this build, the client-facing view was set to use the custom Ashgrove Clinic logo, while the system default stayed selected for Staff, keeping the visual distinction between the two panels intact.
+
+**Why this matters:** a generic Support Center wordmark is fine for a lab environment, but it breaks the illusion the moment a hospital staff member opens the client portal expecting to see their own organization's branding. Swapping in the Ashgrove Clinic logo for the client-facing side is a small change, but it is the kind of detail that separates a raw osTicket install from something that reads as a real, client-ready deployment, which matters for how this project holds up in a portfolio review.
+
+**Why Staff kept the system default:** agents and admins already know they're working inside osTicket, so there's no functional reason to rebrand the internal panel. Reserving the custom logo for the client-facing side keeps the change purposeful instead of cosmetic for its own sake, the branding follows whoever actually needs to see it, which in this case is Ashgrove Clinic staff submitting tickets, not the Bridgeway technicians working them.
+
 ---
 
 ## Build Phases
@@ -175,6 +189,7 @@ An Equipment Request topic rounded out the set, routed at a lower urgency since 
 4. Created Devon Ricci (IT Director, Clinical IT Support) and Marcus Bell (View Only, Support), setting passwords separately after account creation
 5. Built out three SLA tiers (Sev A, Sev B, Sev C) framed around patient impact
 6. Added Critical System Outage, Workstation / PC Issue, and Equipment Request help topics, each routed to a department, priority, and SLA plan
+7. Replaced the default client-facing logo with a custom Ashgrove Clinic logo, keeping Staff on the system default
 
 ---
 
@@ -188,6 +203,7 @@ By the end of this phase:
 - Two agents are active: Devon Ricci (IT Director) and Marcus Bell (View Only)
 - Three SLA tiers are live: Sev A (1hr), Sev B (4hr), and Sev C (8hr), all on a 24/7 schedule
 - New help topics route tickets by patient impact: Critical System Outage and Workstation / PC Issue at Sev A, Equipment Request at Sev C
+- The client-facing portal now displays a custom Ashgrove Clinic logo, while Staff remains on the system default
 
 **Next step:** creating and working mock tickets, submitting as an end user, then triaging, assigning, and resolving as an agent.
 
